@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/thinking-effort',
+  id: 'dsh-thinking-effort-autoswitcher',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
