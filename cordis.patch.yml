@@ -1,0 +1,8 @@
+- insert:
+    - id: thinking-effort
+      name: '@local/thinking-effort'
+      config:
+        weights:
+          # importance 占 0~10 分，failure 占 0~5 分；只改比例，改绝对值不改变结果。
+          importance: 1
+          failure: 1

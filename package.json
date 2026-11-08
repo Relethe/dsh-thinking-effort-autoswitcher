@@ -1,0 +1,32 @@
+{
+  "name": "@local/thinking-effort",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "DSH model picker with a thinking-effort picker, an Auto mode and a per-turn effort tag.",
+  "license": "MIT",
+  "keywords": ["dsh", "dsh-bundle", "reasoning-effort", "model-picker"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "LICENSE",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Thinking effort picker",
+    "description": "Replaces the composer model picker with model and thinking-effort choices (including Auto), and shows the current effort at the end of a turn."
+  }
+}
