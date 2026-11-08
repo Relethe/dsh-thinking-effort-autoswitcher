@@ -2,6 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+![Thinking effort picker showing the model name and the Auto effort level](assets/preview.png)
+
 A DSH plugin that turns the composer model selector into a compact
 model + thinking-effort picker, adds an `Auto` level, and shows the effort each
 turn actually used.

@@ -25,7 +25,9 @@
     "icon.svg",
     "LICENSE",
     "README.md",
-    "README.zh-CN.md"
+    "README.zh-CN.md",
+    "assets/preview.png",
+    "screenshots.json"
   ],
   "dsh": {
     "bundle": {
