@@ -3,9 +3,9 @@
 ## 一、必须先决定的三件事
 
 1. **npm 包名 / scope**
-   现在 `package.json` 里是 `@local/thinking-effort`，`@local` 不是可发布的 scope。
+   现在 `package.json` 里是 `dsh-thinking-effort-autoswitcher`，`@local` 不是可发布的 scope。
    发布前改成你自己的 npm scope，例如 `@jiangjiang/thinking-effort` 或 `dsh-thinking-effort`。
-   ⚠️ 改名会断开当前 profile 里 `node_modules/@local/thinking-effort` 的软链，
+   ⚠️ 改名会断开当前 profile 里 `node_modules/dsh-thinking-effort-autoswitcher` 的软链，
    改完要重新 link 并重启 DSH。
 
 2. **许可证**

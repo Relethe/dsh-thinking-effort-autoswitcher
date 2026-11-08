@@ -32,8 +32,8 @@
 ```jsonc
 // ~/.dsh/profiles/<profile>/package.json
 {
-  "dependencies": { "@local/thinking-effort": "link:C:/path/to/thinking-effort-plugin" },
-  "dsh": { "profile": { "bundles": ["...", "@local/thinking-effort"] } }
+  "dependencies": { "dsh-thinking-effort-autoswitcher": "link:C:/path/to/thinking-effort-plugin" },
+  "dsh": { "profile": { "bundles": ["...", "dsh-thinking-effort-autoswitcher"] } }
 }
 ```
 
@@ -71,7 +71,7 @@ Host 提供两个同源 JSON 接口：
   ```yaml
   - insert:
       - id: thinking-effort
-        name: '@local/thinking-effort'
+        name: 'dsh-thinking-effort-autoswitcher'
         config:
           weights: { importance: 1, failure: 1 }
   ```
