@@ -1,4 +1,4 @@
-# Thinking effort picker
+# Thinking effort autoswitcher
 
 **English** | [简体中文](README.zh-CN.md)
 

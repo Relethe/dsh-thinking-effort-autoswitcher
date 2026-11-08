@@ -1,4 +1,4 @@
-# Thinking effort picker（思考强度选择器）
+# 思考强度自动切换器（thinking effort autoswitcher）
 
 [English](README.md) | **简体中文**
 
