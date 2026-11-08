@@ -1,133 +1,131 @@
-# Thinking effort picker for DSH
+# Thinking effort picker（思考强度选择器）
 
-A DSH bundle that replaces the composer model selector with a compact picker:
-model list, thinking-effort chips, and an `Auto` entry. It also shows the
-current effort at the end of a turn while `Auto` is on.
+一个 DSH 插件：把输入框里的模型选择器换成一个更紧凑的选择器，顺手加上
+「思考强度」档位、`Auto` 模式和每轮真实档位标签。
 
-Status: **0.1.0 — UI, manual switching and the auto-scoring bridge.** The Host
-half is implemented and unit-tested with stubbed services; it goes live after
-one DSH restart (see [Activation](#activation)).
+版本 **0.1.0**，能力范围见 [已知限制](#已知限制)。
 
-## What it does
+## 它做什么
 
-- **Model + effort picker** — replaces the shipped `conversation.input.model`
-  slot. The menu lists models grouped by provider, plus the effort chips of the
-  current model (`off` / `low` / `high` / `max` / whatever the provider
-  exposes) and an `Auto` entry.
-- **Arrow cycling** — `←` decreases and `→` increases. The ladder is
-  `[real levels…, Auto]`: `→` from the highest real level lands on `Auto`,
-  `←` from `Auto` returns to the highest level. There is no wrap-around; the
-  ends stay put.
-- **Mouse-aware** — the arrow shortcut is ignored while the pointer is inside
-  the composer card, so typing/caret movement is never hijacked. Anywhere else
-  on the page it works.
-- **Slide animation** — the effort word in the button slides horizontally
-  (old word out, new word in) inside a fixed 52px slot, with the cool-tone
-  rainbow gradient and a light glow.
-- **Per-turn tag** — while `Auto` is on, each completed turn gets a small
-  effort word above the turn status row. It expands from zero height and fades
-  in/out, so it never reserves blank space when hidden.
-- **Fallback** — if the replacement selector misbehaves, keep the bundle but
-  set `localStorage['thinking-effort:no-replace'] = '1'` and reload: a compact
-  chip in `conversation.input.left` takes over.
+- **模型 + 档位选择器**：替换 `conversation.input.model` 槽位。菜单按 provider
+  分组列出模型，底部是当前模型的真实档位（`off` / `low` / `high` / `max`，具体
+  以 provider 配置为准）和一个 `Auto`。
+- **方向键切档**：`←` 减小、`→` 增大，阶梯是 `[真实档位…, Auto]`。最高档再按
+  `→` 落到 `Auto`，`Auto` 按 `←` 回到最高档；**两端不回绕**。
+- **鼠标位置感知**：鼠标在输入框卡片内时，`←` `→` 不抢按键（留给光标移动）；
+  鼠标在页面其他地方时都能切档。
+- **滑动动画**：按钮里的档位小字横向滑动切换（旧字滑出、新字滑入），固定宽度
+  槽位，不会撑动按钮；小字使用冷色渐变流动 + 轻辉光。
+- **每轮真实档位**：`Auto` 开启时，每轮对话尾部显示**该轮实际使用的档位**
+  （来自 `request/header` 事件，不是当前选择）。没有记录的一轮显示 `default`。
+- **降级开关**：如果替换选择器出问题，保留插件但设置
+  `localStorage['thinking-effort:no-replace'] = '1'` 后刷新，会退回一个紧凑的
+  档位 chip（`conversation.input.left`）。
 
-## Install (local bundle)
+## 安装
 
-The bundle lives in this directory. Link it into a profile and add the patch
-row the same way any other DSH bundle is installed, then restart DSH (the Host
-half only loads at startup).
+把插件链接进 profile 的依赖，并在 `dsh.profile.bundles` 里列出；插件自带的
+`cordis.patch.yml` 会插入 loader 行，profile 自己的 patch 不用额外加。
 
-## Configuration
-
-The bundle patch row accepts weights for the (not yet wired) auto scoring:
-
-```yaml
-- insert:
-    - id: thinking-effort
-      name: '@local/thinking-effort'
-      config:
-        weights:
-          importance: 1
-          failure: 1
+```jsonc
+// ~/.dsh/profiles/<profile>/package.json
+{
+  "dependencies": { "@local/thinking-effort": "link:C:/path/to/thinking-effort-plugin" },
+  "dsh": { "profile": { "bundles": ["...", "@local/thinking-effort"] } }
+}
 ```
 
-Only the ratio matters: `total = wI*importance + wA*failure`, and the level
-index is `floor(total / ((wI*10 + wA*5) / N))` over the model's real levels.
+安装后**完全重启 DSH**（Host 半边只在启动时加载）。
 
-## Auto scoring
+## 自动打分（Host 半边）
 
-`index.js` registers `POST /thinking-effort/evaluate` and computes:
+Host 提供两个同源 JSON 接口：
 
-- **failure (0–5)** from the latest turn's Session events: repeated failed tool
-  calls (same name + argument digest) and a `turn/end` error;
-- **importance (0–10)** with one small judge call against the anchor (the
-  active goal objective, else the first user message), where farther from the
-  anchor scores lower;
-- the mapped target level, and — with `apply: true` — the selection applied
-  through `sessionController.selectModel`.
+| 路由 | 作用 |
+| --- | --- |
+| `POST /thinking-effort/evaluate` | 计算本轮分数并给出目标档位；`apply: true` 时直接应用 |
+| `POST /thinking-effort/turns` | 返回每一轮实际发请求时用的档位（来自 `request/header`） |
 
-The Client half calls it:
+### 分数怎么来
 
-- when `Auto` is switched on (immediately, so the first cold start lands on the
-  middle level before the next turn);
-- after every completed turn, from the per-turn tag (`conversation.chat.turnTail`),
-  at most once per turn, 600 ms after the turn settles.
+- **failure（0–5，确定性）**：只看**最近一轮**。同名同参数的工具调用失败
+  ≥2 次记一组，每组 2 分；该轮 `turn/end` 的 `reason.kind === 'error'` 再 +2；
+  上限 5。
+- **importance（0–10，判分调用）**：用一次很小的模型调用，把「最近的用户消息」
+  和锚点比较。锚点是**正在运行的 goal 目标**，没有 goal 时取首条用户消息；
+  越贴近锚点、影响面越大分越高，越偏离/越边角分越低。判分调用使用该模型的最
+  低档（优先 `off`），解析失败时回退 5 分并返回 `importanceRaw` 方便排查。
+- **映射**：
 
-If the route answers 404/405 the Client marks it unavailable and stops calling,
-so a profile without the Host half keeps working.
+  ```
+  total    = wI * importance + wA * failure
+  maximum  = wI * 10 + wA * 5
+  interval = maximum / 档位数量
+  index    = floor(total / interval)   // 夹到 0 … 档位数量-1
+  ```
 
-### Per-turn history
+  权重写在插件 patch 行里，**只影响比例**：
 
-`POST /thinking-effort/turns` returns the effort each turn **actually sent**:
+  ```yaml
+  - insert:
+      - id: thinking-effort
+        name: '@local/thinking-effort'
+        config:
+          weights: { importance: 1, failure: 1 }
+  ```
+
+### 客户端什么时候调用
+
+- 切到 `Auto` 时**立即**算一次（保证冷启动先落到中间档）；
+- 每轮结束后由轮尾标签触发一次，600ms 防抖，**同一轮只算一次**；
+- 接口返回 404/405 时标记为不可用并停止调用，菜单里会提示「自动评分未连接」，
+  不会反复打无效请求。
+
+### 历史真实档位
+
+`/thinking-effort/turns` 按 `turn/start` … `turn/end` 的区间收集
+`request/header` 事件，返回形如：
 
 ```json
-{"ok":true,"turns":[{"turn":1,"effort":"low","seq":18,"endSeq":100,"provider":"p","model":"m","at":1000}]}
+{"ok":true,"turns":[{"turn":1,"effort":"low","seq":18,"endSeq":100}]}
 ```
 
-The Host reads `request/header` events between `turn/start` and `turn/end`, so
-the number comes from the request the model really received, not from the
-current picker state. The Client caches the answer per session, matches it to
-each `conversation.chat.turnTail` entry by the turn's closing `seq` (falling
-back to the turn number), and shows that recorded effort. When the route is
-unavailable it falls back to the live selection.
+客户端按会话缓存这份数据，用轮尾的 `seq` 匹配 `endSeq`（匹配不到时回退到
+`endSeq ≤ seq` 的最后一轮，再回退到轮次编号），显示**当轮真实档位**；接口不可
+用时才退回当前选择。
 
-## Activation
+## 启用要点
 
-The Host half only loads at startup. Requirements:
+Host 半边能起来需要满足：
 
-1. `@local/thinking-effort` linked into the profile's `node_modules`;
-2. a loader row for it — the bundle patch inside `package.json` inserts it, so
-   the profile's own `cordis.patch.yml` needs no extra entry;
-3. the module must declare `export const inject = ['webServer']`.
+1. 插件已链接进 profile 的 `node_modules`；
+2. loader 里有它的行（bundle 自带 patch 已包含）；
+3. `index.js` 导出 `export const inject = ['webServer']`。
 
-Point 3 is the one that bit this plugin: without a declared dependency, `apply`
-can run before the HTTP carrier exists, `ctx.get('webServer')` returns undefined,
-the early return silently skips route registration, and the plugin still reports
-`fiberPhase: active` while every request falls through to the SPA fallback
-(405 with `allow: GET, HEAD`).
+第 3 条是踩过的坑：不声明依赖时，`apply` 可能先于 HTTP 服务就绪运行，
+`ctx.get('webServer')` 得到 `undefined`，代码会静默 `return` —— 插件显示
+`fiberPhase: active`，但路由根本没注册，所有请求落到 SPA 兜底（405）。
 
-After a restart, verify with:
+自检：
 
 ```powershell
-curl.exe -s -X POST "http://127.0.0.1:<port>/thinking-effort/evaluate" `
+curl.exe -s -X POST "http://127.0.0.1:<端口>/thinking-effort/evaluate" `
   -H "content-type: application/json" -H "sec-fetch-site: same-origin" `
   -d '{"sessionId":"probe"}'
 ```
 
-A structured JSON answer (for example `{"ok":false,"error":"session-not-live"}`)
-means the route is live; a 405 means it is not.
+返回结构化 JSON（例如 `{"ok":false,"error":"session-not-live"}`）说明路由活着；
+405 说明没加载。
 
-## Known limitations
+## 已知限制
 
-- The per-turn tag shows the recorded `request/header` effort when
-  `/thinking-effort/turns` answers; otherwise it falls back to the current
-  selection. A turn with no recorded header (e.g. cancelled) shows the fallback.
-- `conversation.input.model.label` contributions from other plugins are not
-  forwarded (the child slot is declared but never rendered).
-- The menu has no search box and no roving keyboard focus.
-- `selectModel` may be refused while an agent is running; the response then
-  carries `applied: false` with `applyError`, and the UI keeps the manual choice.
+- 每轮标签优先显示 `request/header` 记录的真实档位；接口不可用时才回退到当前
+  选择。没有请求头记录的轮次（例如取消的轮）显示 `default`。
+- `conversation.input.model.label` 没有转发其他插件的标签贡献。
+- 菜单没有搜索框，也没有 roving focus（键盘逐项聚焦）。
+- `selectModel` 在 agent 运行中可能被拒绝；响应会带 `applied: false` 和
+  `applyError`，界面保留手动选择。
 
-## License
+## 许可证
 
-MIT. See [LICENSE](./LICENSE).
+MIT，见 [LICENSE](./LICENSE)。
