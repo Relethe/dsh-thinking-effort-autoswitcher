@@ -568,9 +568,30 @@ window.__ModuleLoader__.load({
         if (busyRef.current) return;
         busyRef.current = true;
         setNote(null);
-        Promise.resolve(select(next)).then(
+        /* 手动切档后取消排队中的 auto 评分，避免它晚一步把选择改回去 */
+        if (!autoMode) {
+          clearTimeout(evalState.timer);
+          evalState.latest = null;
+          evalState.lastKey = '';
+        }
+        const release = () => {
+          busyRef.current = false;
+        };
+        /* 安全阀：select 既不同步抛错、又迟迟不 settle 时，别把按钮永久锁死 */
+        const guard = setTimeout(release, 8000);
+        let pending;
+        try {
+          pending = select(next);
+        } catch (error) {
+          clearTimeout(guard);
+          release();
+          setNote('切换失败：' + (error && error.message ? error.message : String(error)));
+          return;
+        }
+        Promise.resolve(pending).then(
           (result) => {
-            busyRef.current = false;
+            clearTimeout(guard);
+            release();
             if (result && result.ok === false) {
               setNote('切换失败：' + (result.error && result.error.message ? result.error.message : '未知错误'));
               return;
@@ -580,7 +601,8 @@ window.__ModuleLoader__.load({
             if (autoMode) evaluateNow(sessionId, 'select:' + Date.now());
           },
           (error) => {
-            busyRef.current = false;
+            clearTimeout(guard);
+            release();
             setNote('切换失败：' + (error && error.message ? error.message : String(error)));
           },
         );
