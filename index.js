@@ -345,11 +345,20 @@ export function apply(ctx, config) {
     }
     const config = (header && header.config) || {};
     const fallback = fallbackSelection(catalog) || {};
-    const provider = config.provider || fallback.provider;
-    const model = config.model || fallback.model;
+    /* 客户端带上它此刻选中的 provider/model：请求头是上一轮的，模型刚换过时会引起回退 */
+    const requestedProvider = typeof request.provider === 'string' ? request.provider : '';
+    const requestedModel = typeof request.model === 'string' ? request.model : '';
+
+    let provider = requestedProvider || config.provider || fallback.provider;
+    let model = requestedModel || config.model || fallback.model;
     if (!provider || !model) return { ok: false, error: 'no-selection' };
 
-    const resolved = resolveLevels(catalog, provider, model);
+    let resolved = resolveLevels(catalog, provider, model);
+    if (!resolved && requestedProvider) {
+      provider = config.provider || fallback.provider;
+      model = config.model || fallback.model;
+      resolved = resolveLevels(catalog, provider, model);
+    }
     if (!resolved || !resolved.efforts.length) {
       return { ok: false, error: 'no-efforts', provider, model };
     }

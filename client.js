@@ -29,12 +29,17 @@ window.__ModuleLoader__.load({
       latest: null,
     };
 
-    async function postEvaluate(sessionId, applyTarget) {
+    async function postEvaluate(sessionId, applyTarget, selection) {
+      const body = { sessionId, apply: applyTarget === true };
+      if (selection && selection.provider && selection.model) {
+        body.provider = selection.provider;
+        body.model = selection.model;
+      }
       const response = await fetch('/thinking-effort/evaluate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ sessionId, apply: applyTarget === true }),
+        body: JSON.stringify(body),
       });
       if (response.status === 404 || response.status === 405) {
         evalState.routeDown = true;
@@ -56,7 +61,7 @@ window.__ModuleLoader__.load({
       if (key === evalState.lastKey) return;
       evalState.inflight = true;
       try {
-        const result = await postEvaluate(target.sessionId, true);
+        const result = await postEvaluate(target.sessionId, true, target.selection);
         if (result && result.ok) {
           evalState.lastKey = key;
           window.dispatchEvent(new CustomEvent('thinking-effort:evaluated', { detail: result }));
@@ -68,16 +73,16 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function scheduleAutoEval(sessionId, key) {
+    function scheduleAutoEval(sessionId, key, selection) {
       if (!sessionId || evalState.routeDown) return;
-      evalState.latest = { sessionId, key: String(key) };
+      evalState.latest = { sessionId, key: String(key), selection: selection || null };
       clearTimeout(evalState.timer);
       evalState.timer = setTimeout(runScheduledEval, 600);
     }
 
-    function evaluateNow(sessionId, key) {
+    function evaluateNow(sessionId, key, selection) {
       if (!sessionId || evalState.routeDown) return;
-      evalState.latest = { sessionId, key: String(key) };
+      evalState.latest = { sessionId, key: String(key), selection: selection || null };
       clearTimeout(evalState.timer);
       runScheduledEval();
     }
@@ -519,6 +524,8 @@ window.__ModuleLoader__.load({
 
       const [open, setOpen] = React.useState(false);
       const busyRef = React.useRef(false);
+      /* 最近一次已知的 provider/model：切档必须带着它，否则目录快照还没更新时会拿旧模型发请求 */
+      const selectionRef = React.useRef(null);
       const [note, setNote] = React.useState(null);
       const [auto, setAuto] = React.useState(() => readAuto(sessionId));
       const [routeDown, setRouteDown] = React.useState(evalState.routeDown);
@@ -547,6 +554,13 @@ window.__ModuleLoader__.load({
         window.addEventListener('thinking-effort:route-down', onDown);
         return () => window.removeEventListener('thinking-effort:route-down', onDown);
       }, []);
+
+      /* 目录快照就绪后同步最近一次选择（模型切换后立刻切档时它是唯一可靠的基准） */
+      React.useEffect(() => {
+        if (current && current.provider && current.model) {
+          selectionRef.current = { provider: current.provider, model: current.model };
+        }
+      }, [current && current.provider, current && current.model]);
 
       /* Host 端 selectModel 之后刷新一次目录，让按钮显示评分选出的档位 */
       React.useEffect(() => {
@@ -598,7 +612,12 @@ window.__ModuleLoader__.load({
             }
             setAuto(autoMode);
             writeAuto(sessionId, autoMode);
-            if (autoMode) evaluateNow(sessionId, 'select:' + Date.now());
+            if (next && next.provider && next.model) {
+              selectionRef.current = { provider: next.provider, model: next.model };
+            }
+            if (autoMode) {
+              evaluateNow(sessionId, 'select:' + Date.now(), next ? { provider: next.provider, model: next.model } : null);
+            }
           },
           (error) => {
             clearTimeout(guard);
@@ -609,10 +628,11 @@ window.__ModuleLoader__.load({
       }, [select, sessionId]);
 
       const pickEffort = React.useCallback((effort, autoMode) => {
-        if (!current) return;
+        const base = selectionRef.current || current;
+        if (!base) return;
         submit({
-          provider: current.provider,
-          model: current.model,
+          provider: base.provider,
+          model: base.model,
           ...(effort && effort.id ? { reasoningEffort: effort.id } : {}),
         }, autoMode);
         setOpen(false);
@@ -620,6 +640,8 @@ window.__ModuleLoader__.load({
 
       const pickModel = React.useCallback((provider, nextModel) => {
         const effort = middleEffort(nextModel) || effortsOf(nextModel)[0];
+        /* 先记住新模型，紧接着的切档请求就不会带上旧模型 */
+        selectionRef.current = { provider, model: nextModel.id };
         submit({
           provider,
           model: nextModel.id,
@@ -631,7 +653,8 @@ window.__ModuleLoader__.load({
       /* 档位阶梯 = 真实档位 + auto；← 减小、→ 增大，两端都不回绕。
          auto 排在最高档之上，所以 → 从最高档继续按会落到 auto，← 从 auto 回到最高档。 */
       const cycle = React.useCallback((step) => {
-        if (!efforts.length || !current) return;
+        const base = selectionRef.current || current;
+        if (!efforts.length || !current || !base) return;
         const ids = efforts.map((item) => item.id);
         const ladder = ids.concat([AUTO_LABEL]);
         let index;
@@ -648,8 +671,8 @@ window.__ModuleLoader__.load({
           /* 进入 Auto：按规格冷启动到中间档，而不是沿用当前档（否则会一直停在 max） */
           const cold = middleEffort(model) || efforts[Math.floor((efforts.length - 1) / 2)];
           submit({
-            provider: current.provider,
-            model: current.model,
+            provider: base.provider,
+            model: base.model,
             ...(cold ? { reasoningEffort: cold.id } : {}),
           }, true);
         } else {
@@ -850,7 +873,11 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!auto || !current) return;
         const seq = props && props.seq;
-        scheduleAutoEval(sessionId, seq !== undefined && seq !== null ? 'turn:' + seq : 'mount');
+        scheduleAutoEval(
+          sessionId,
+          seq !== undefined && seq !== null ? 'turn:' + seq : 'mount',
+          current ? { provider: current.provider, model: current.model } : null,
+        );
       }, [auto, sessionId, props && props.seq, current && current.provider, current && current.model]);
 
       /* 历史真实档位：订阅 turns 缓存，拿到 request/header 里记录的实际档位 */
