@@ -158,6 +158,16 @@ window.__ModuleLoader__.load({
       return key ? String(key).split(':').pop() : '';
     }
 
+    /* 切换失败要给得出人话：会话被写入方占用是最常见的一种 */
+    function failureText(result) {
+      const error = result && result.error;
+      const code = error && error.code;
+      if (code === 'session/writer-held') return '会话正在运行，等这一轮结束再切';
+      if (error && error.message) return '切换失败：' + error.message;
+      if (code) return '切换失败：' + code;
+      return '切换失败：未知错误';
+    }
+
     function autoKey(sessionId) {
       return AUTO_KEY_PREFIX + (sessionId || '');
     }
@@ -261,7 +271,7 @@ window.__ModuleLoader__.load({
 @keyframes tef-eff-in-left { from { transform: translateX(-110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 .tef-dot-sep { color: var(--dsw-alias-label-secondary, #5f5f68); }
 .tef-pop {
-  position: fixed; z-index: 200; width: 268px; overflow: auto; padding: 4px;
+  position: fixed; z-index: 1200; width: 268px; overflow: auto; padding: 4px;
   border: 1px solid var(--dsw-alias-border-l1, #303038); border-radius: 10px;
   background: var(--dsw-alias-bg-overlay, #1b1b20); color: var(--dsw-alias-label-primary, #e6e6ee);
   box-shadow: 0 16px 36px rgba(0,0,0,.42);
@@ -607,9 +617,11 @@ window.__ModuleLoader__.load({
             clearTimeout(guard);
             release();
             if (result && result.ok === false) {
-              setNote('切换失败：' + (result.error && result.error.message ? result.error.message : '未知错误'));
+              /* 失败时保持菜单打开，让提示留在看得见的地方 */
+              setNote(failureText(result));
               return;
             }
+            setOpen(false);
             setAuto(autoMode);
             writeAuto(sessionId, autoMode);
             if (next && next.provider && next.model) {
@@ -629,13 +641,15 @@ window.__ModuleLoader__.load({
 
       const pickEffort = React.useCallback((effort, autoMode) => {
         const base = selectionRef.current || current;
-        if (!base) return;
+        if (!base) {
+          setNote('当前模型没有可用的目录，无法切档');
+          return;
+        }
         submit({
           provider: base.provider,
           model: base.model,
           ...(effort && effort.id ? { reasoningEffort: effort.id } : {}),
         }, autoMode);
-        setOpen(false);
       }, [current, submit]);
 
       const pickModel = React.useCallback((provider, nextModel) => {
@@ -647,7 +661,6 @@ window.__ModuleLoader__.load({
           model: nextModel.id,
           ...(effort ? { reasoningEffort: effort.id } : {}),
         }, false);
-        setOpen(false);
       }, [submit]);
 
       /* 档位阶梯 = 真实档位 + auto；← 减小、→ 增大，两端都不回绕。
@@ -740,8 +753,9 @@ window.__ModuleLoader__.load({
           h('span', { className: 'tef-dot-sep' }, '·'),
           h(SlidingEffort, { text: word, direction }),
         ),
-        note ? h('div', { className: 'tef-msg', style: { position: 'absolute', left: 0, bottom: 'calc(100% + 30px)', zIndex: 50 } }, note) : null,
+        open ? null : (note ? h('div', { className: 'tef-msg', style: { position: 'absolute', left: 0, bottom: 'calc(100% + 30px)', zIndex: 50 } }, note) : null),
         open ? h(Popup, { anchorRef, onClose: () => setOpen(false) },
+          note ? h('div', { className: 'tef-msg' }, note) : null,
           h(MenuBody, {
             state,
             auto,
