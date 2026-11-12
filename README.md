@@ -4,6 +4,8 @@
 
 ![Thinking effort picker showing the model name and the Auto effort level](assets/preview.png)
 
+![The model menu grouped by provider, with the thinking-effort chips underneath](assets/menu.png)
+
 A DSH plugin that turns the composer model selector into a compact
 model + thinking-effort picker, adds an `Auto` level, and shows the effort each
 turn actually used.

@@ -1,6 +1,6 @@
 {
   "name": "dsh-thinking-effort-autoswitcher",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "type": "module",
   "description": "DSH thinking-effort auto-switcher: replaces the composer model picker, cycles thinking effort with arrow keys left/right and models with arrow keys up/down, scores each turn for an Auto mode, and labels every finished turn with the effort it sent.",
@@ -27,6 +27,7 @@
     "README.md",
     "README.zh-CN.md",
     "assets/preview.png",
+    "assets/menu.png",
     "screenshots.json"
   ],
   "dsh": {
