@@ -20,9 +20,13 @@ Version **0.1.0**. Scope and limitations are listed
 - **Arrow cycling** — `←` decreases, `→` increases. The ladder is
   `[real levels…, Auto]`: `→` from the highest level lands on `Auto`, `←` from
   `Auto` returns to the highest level. There is no wrap-around.
-- **Mouse-aware** — the arrow shortcut is ignored while the pointer is inside
-  the composer card, so caret movement is never hijacked. Anywhere else on the
-  page it works.
+- **↑ ↓ switches model** — walks the catalog in order (provider groups first,
+  then models inside each group) one step per press, also stopping at the ends;
+  the new model lands on its middle effort.
+- **Caret-safe by opt-in** — arrows cycle anywhere, including inside a text field
+  with content; the cost is that arrows no longer move the caret there. Set
+  `localStorage['thinking-effort:caret-priority'] = '1'` and reload to give the
+  caret priority again.
 - **Slide animation** — the effort word in the button slides horizontally
   (old word out, new word in) inside a fixed-width slot, so the button never
   jumps; the word uses a flowing cool-tone gradient with a light glow.

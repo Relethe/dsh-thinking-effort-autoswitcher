@@ -123,8 +123,18 @@ export function apply(ctx, config) {
     let turn = 0;
     let lastTurn = 0;
     const calls = new Map();
-    const repeats = new Map();
-    let turnError = 0;
+    /* 按轮次分开记账：只有最近一轮的失败参与打分。
+       逐事件判断「是不是最后一轮」是错的——lastTurn 在每个 turn/start 就刷新，
+       那个比较恒为真，会把整段会话的历史失败一直累加。 */
+    const byTurn = new Map();
+    const recordOf = (index) => {
+      let record = byTurn.get(index);
+      if (!record) {
+        record = { repeats: new Map(), error: false };
+        byTurn.set(index, record);
+      }
+      return record;
+    };
 
     for (const event of events) {
       const data = event.data || {};
@@ -138,7 +148,7 @@ export function apply(ctx, config) {
       if (event.type === 'turn/end') {
         if (typeof data.turn === 'number') {
           lastTurn = Math.max(lastTurn, data.turn);
-          if (data.turn === lastTurn && data.reason && data.reason.kind === 'error') turnError = 1;
+          if (data.reason && data.reason.kind === 'error') recordOf(data.turn).error = true;
         }
         continue;
       }
@@ -149,21 +159,23 @@ export function apply(ctx, config) {
         });
         continue;
       }
-      if (event.type === 'tool/result' && turn === lastTurn) {
+      if (event.type === 'tool/result') {
         const failed = Boolean(data.error) || Boolean(data.message && data.message.isError);
         if (!failed) continue;
         const call = calls.get(data.callId);
         if (!call) continue;
+        const record = recordOf(turn);
         const key = call.name + '\u0000' + call.digest;
-        const count = (repeats.get(key) || 0) + 1;
-        repeats.set(key, count);
+        record.repeats.set(key, (record.repeats.get(key) || 0) + 1);
       }
     }
 
+    const latest = byTurn.get(lastTurn) || { repeats: new Map(), error: false };
     let repeatGroups = 0;
-    for (const count of repeats.values()) {
+    for (const count of latest.repeats.values()) {
       if (count >= 2) repeatGroups += 1;
     }
+    const turnError = latest.error ? 1 : 0;
 
     return {
       score: Math.min(5, repeatGroups * 2 + turnError * 2),
@@ -376,12 +388,26 @@ export function apply(ctx, config) {
 
     let applied = false;
     let applyError = null;
+    let previousEffort = null;
+    let unchanged = false;
     if (request.apply === true) {
+      /* 上一次请求实际发的档位：和 target 一样就不必再写一次选择。
+         每轮都无条件 selectModel 会在 agent 运行期撞上 session/writer-held，
+         也会把 thinking_level_switch 统计刷满。 */
       try {
-        await sessionController.selectModel({ sessionId, provider, model, reasoningEffort: target });
-        applied = true;
-      } catch (error) {
-        applyError = String(error && error.message ? error.message : error);
+        previousEffort = config.reasoningEffort || null;
+      } catch {
+        previousEffort = null;
+      }
+      if (previousEffort === target) {
+        unchanged = true;
+      } else {
+        try {
+          await sessionController.selectModel({ sessionId, provider, model, reasoningEffort: target });
+          applied = true;
+        } catch (error) {
+          applyError = String(error && error.message ? error.message : error);
+        }
       }
     }
 
@@ -401,6 +427,8 @@ export function apply(ctx, config) {
       weights: { importance: importanceWeight, failure: failureWeight },
       index,
       target,
+      previousEffort,
+      unchanged,
       applied,
       applyError,
     };

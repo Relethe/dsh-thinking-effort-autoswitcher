@@ -8,10 +8,21 @@ window.__ModuleLoader__.load({
 
     const AUTO_KEY_PREFIX = 'thinking-effort:auto:';
     const NO_REPLACE_KEY = 'thinking-effort:no-replace';
+    /* 设为 '1' 恢复「输入框内方向键优先移动光标」，默认关闭（方向键任何时候都切档） */
+    const CARET_KEY = 'thinking-effort:caret-priority';
     const AUTO_LABEL = 'Auto';
+    /* 页面里跑的是哪一版：悬停按钮看 tooltip 末尾，刷新后应当等于下面的值。
+       页面不刷新拿到的是旧代码，这条注释就是给「改了没效果」一个可核对的锚点。 */
+    const BUILD = '2026-11-11 17:43';
 
-    /** One mounted seat owns the global ← → shortcut at a time. */
-    const cycleRegistry = { fn: null, inDialog: false };
+    /** One mounted seat owns the global ← → ↑ ↓ shortcut at a time. */
+    const cycleRegistry = { fn: null, modelFn: null, notify: null };
+
+    /* 诊断提示：按键被规则挡下时把原因写到座席下方，避免「按了没反应」时无从判断 */
+    function notify(message) {
+      if (typeof cycleRegistry.notify !== 'function') return;
+      cycleRegistry.notify(message);
+    }
 
     /** 每轮标签在 auto 关闭后的淡出期间要显示的字：按 session+seq 记住，
      *  即使组件被重新挂载也不会丢。 */
@@ -141,6 +152,10 @@ window.__ModuleLoader__.load({
     function turnRecord(sessionId, seq, turnProp) {
       const cache = turnsState.bySession.get(sessionId);
       if (!cache) return null;
+      /* 轮次优先：槽位给的 turn 是权威归属。轮尾的 seq 是 closing 的 seq，
+         不一定等于该轮 turn/end 的 seq，先按 seq 找会退到上一轮、标签慢一拍。 */
+      const turn = typeof turnProp === 'number' ? turnProp : (turnProp && typeof turnProp.turn === 'number' ? turnProp.turn : null);
+      if (turn !== null && cache.byTurn.has(turn)) return cache.byTurn.get(turn);
       if (typeof seq === 'number') {
         if (cache.bySeq.has(seq)) return cache.bySeq.get(seq);
         /* seq 可能不是轮尾那一条：取 endSeq 不超过它的最后一轮 */
@@ -150,8 +165,7 @@ window.__ModuleLoader__.load({
         }
         if (best) return best;
       }
-      const turn = typeof turnProp === 'number' ? turnProp : (turnProp && typeof turnProp.turn === 'number' ? turnProp.turn : null);
-      return turn !== null && cache.byTurn.has(turn) ? cache.byTurn.get(turn) : null;
+      return null;
     }
 
     function stem(key) {
@@ -693,38 +707,51 @@ window.__ModuleLoader__.load({
         }
       }, [efforts, current, auto, model, submit, pickEffort]);
 
+      /* ↑ ↓ 切模型：按目录里的顺序（先 provider 分组，组内按模型顺序）走一格，
+         两端到边即停、不回绕。切换时沿用 pickModel——新模型落到中间档。 */
+      const cycleModel = React.useCallback((step) => {
+        const flat = [];
+        for (const group of groupsOf(state)) {
+          for (const item of group.models || []) flat.push({ provider: group.id, model: item });
+        }
+        if (flat.length < 2) return;
+        const base = selectionRef.current || current;
+        if (!base) return;
+        let index = flat.findIndex((entry) => entry.provider === base.provider && entry.model.id === base.model);
+        if (index < 0) index = 0;
+        const next = Math.max(0, Math.min(flat.length - 1, index + step));
+        if (next === index) return;
+        pickModel(flat[next].provider, flat[next].model);
+      }, [state, current, pickModel]);
+
       const onKey = React.useCallback((event) => {
         if (event.key === 'ArrowLeft') { event.preventDefault(); cycle(-1); }
         if (event.key === 'ArrowRight') { event.preventDefault(); cycle(1); }
-      }, [cycle]);
+        if (event.key === 'ArrowUp') { event.preventDefault(); cycleModel(-1); }
+        if (event.key === 'ArrowDown') { event.preventDefault(); cycleModel(1); }
+      }, [cycle, cycleModel]);
 
       React.useEffect(() => {
         cycleRegistry.fn = cycle;
+        cycleRegistry.modelFn = cycleModel;
         return () => {
           if (cycleRegistry.fn === cycle) cycleRegistry.fn = null;
-          cycleRegistry.inDialog = false;
+          if (cycleRegistry.modelFn === cycleModel) cycleRegistry.modelFn = null;
         };
-      }, [cycle]);
+      }, [cycle, cycleModel]);
 
-      /* 鼠标是否在输入对话框内：只有在这里面时才拦下 ← →，别处一律可用 */
+      /* 按键被规则挡下时，把原因显示在座席下方（2 秒后自动消失） */
+      const noteTimer = React.useRef(0);
       React.useEffect(() => {
-        const start = anchorRef.current;
-        if (!start) return undefined;
-        let box = start;
-        while (box && box !== document.body) {
-          if (box.querySelector && box.querySelector('textarea')) break;
-          box = box.parentElement;
-        }
-        const dialog = box && box !== document.body ? box : null;
-        if (!dialog) return undefined;
-        const onMove = (event) => {
-          const rect = dialog.getBoundingClientRect();
-          cycleRegistry.inDialog =
-            event.clientX >= rect.left && event.clientX <= rect.right &&
-            event.clientY >= rect.top && event.clientY <= rect.bottom;
+        cycleRegistry.notify = (message) => {
+          setNote(message);
+          clearTimeout(noteTimer.current);
+          noteTimer.current = setTimeout(() => setNote(null), 2500);
         };
-        window.addEventListener('mousemove', onMove, true);
-        return () => window.removeEventListener('mousemove', onMove, true);
+        return () => {
+          cycleRegistry.notify = null;
+          clearTimeout(noteTimer.current);
+        };
       }, []);
 
       const word = auto ? AUTO_LABEL : (effortsLabel || 'default');
@@ -747,7 +774,7 @@ window.__ModuleLoader__.load({
             });
           },
           onKeyDown: props.locked ? undefined : onKey,
-          title: '切换思考强度：← / →',
+          title: '切换思考强度：← / →；切换模型：↑ / ↓ · ' + BUILD,
         },
           h('span', { className: 'tef-model' }, modelLabel),
           h('span', { className: 'tef-dot-sep' }, '·'),
@@ -802,6 +829,7 @@ window.__ModuleLoader__.load({
       const [auto, setAuto] = React.useState(() => readAuto(sessionId));
       const [open, setOpen] = React.useState(false);
       const [busy, setBusy] = React.useState(false);
+      const [note, setNote] = React.useState(null);
       const anchorRef = React.useRef(null);
 
       const load = props && props.load;
@@ -814,10 +842,29 @@ window.__ModuleLoader__.load({
       if (!current || !efforts.length) return null;
 
       const pick = (effortId, autoMode) => {
-        if (typeof props.select !== 'function') return;
+        if (typeof props.select !== 'function') {
+          setNote('目录不可用');
+          return;
+        }
         setBusy(true);
-        Promise.resolve(props.select({ provider: current.provider, model: current.model, reasoningEffort: effortId }))
-          .then(() => { setBusy(false); setAuto(autoMode); writeAuto(sessionId, autoMode); }, () => setBusy(false));
+        setNote(null);
+        Promise.resolve(props.select({ provider: current.provider, model: current.model, reasoningEffort: effortId })).then(
+          (result) => {
+            setBusy(false);
+            setOpen(false);
+            /* select 的失败是返回值不是异常：忽略 ok:false 就成了「点了没反应」 */
+            if (result && result.ok === false) {
+              setNote(failureText(result));
+              return;
+            }
+            setAuto(autoMode);
+            writeAuto(sessionId, autoMode);
+          },
+          (error) => {
+            setBusy(false);
+            setNote('切换失败：' + (error && error.message ? error.message : String(error)));
+          },
+        );
       };
 
       return h('div', {
@@ -833,6 +880,7 @@ window.__ModuleLoader__.load({
         },
           h('span', { className: 'tef-effort' }, auto ? AUTO_LABEL : label),
         ),
+        note ? h('div', { className: 'tef-msg' }, note) : null,
         open ? h(Popup, { anchorRef, onClose: () => setOpen(false) },
           h('div', { className: 'tef-effort-row', style: { padding: '8px' } },
             efforts.map((effort) => h('button', {
@@ -840,7 +888,7 @@ window.__ModuleLoader__.load({
               type: 'button',
               className: 'tef-chip',
               'data-on': !auto && current.reasoningEffort === effort.id ? '1' : '0',
-              onClick: () => { pick(effort.id, false); setOpen(false); },
+              onClick: () => pick(effort.id, false),
             }, stem(effort.id))),
             h('button', {
               type: 'button',
@@ -849,7 +897,6 @@ window.__ModuleLoader__.load({
               onClick: () => {
                 const effort = middleEffort(model) || efforts[0];
                 pick(effort.id, true);
-                setOpen(false);
               },
             }, AUTO_LABEL),
           ),
@@ -938,21 +985,51 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       mountStyles(ctx);
 
-      /* ← → 只在这个按钮/对话框区域内（鼠标悬停）生效 */
+      /* ← → 切档位，↑ ↓ 切模型，**任何位置都生效**，包括输入框里有内容时。
+         代价：输入框内不再用方向键移动光标——补一个可逆开关
+         localStorage['thinking-effort:caret-priority']='1' 恢复「光标优先」。
+         只让 select 与 number/range 输入保留原生方向键语义。 */
+      let caretPriority = false;
+      try {
+        caretPriority = window.localStorage.getItem(CARET_KEY) === '1';
+      } catch {
+        caretPriority = false;
+      }
+
       const onGlobalKey = (event) => {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        const key = event.key;
+        if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') return;
         if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+        const vertical = key === 'ArrowUp' || key === 'ArrowDown';
+        const dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
         const target = event.target;
         const tag = target && target.tagName ? String(target.tagName).toLowerCase() : '';
-        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-        if (target && target.isContentEditable) return;
+        if (tag === 'select') return;
+        if (tag === 'input') {
+          const type = String((target && target.type) || '').toLowerCase();
+          if (type === 'number' || type === 'range') return;
+        }
         if (target && target.closest && target.closest('.tef-pop')) return;
-        if (cycleRegistry.inDialog) return;
-        const fn = cycleRegistry.fn;
-        if (typeof fn !== 'function') return;
+        if (caretPriority && (target && target.isContentEditable)) return;
+        if (caretPriority && (tag === 'input' || tag === 'textarea')) {
+          const value = typeof target.value === 'string' ? target.value : '';
+          if (vertical) {
+            if (tag === 'textarea' && value.trim() !== '') return;
+          } else {
+            const start = typeof target.selectionStart === 'number' ? target.selectionStart : value.length;
+            const end = typeof target.selectionEnd === 'number' ? target.selectionEnd : value.length;
+            const atEdge = dir < 0 ? start === 0 && end === 0 : start === value.length && end === value.length;
+            if (!atEdge) return;
+          }
+        }
+        const fn = vertical ? cycleRegistry.modelFn : cycleRegistry.fn;
+        if (typeof fn !== 'function') {
+          notify('键位未就绪：座席没挂上');
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
-        fn(event.key === 'ArrowRight' ? 1 : -1);
+        fn(dir);
       };
       window.addEventListener('keydown', onGlobalKey, true);
       ctx.effect(() => () => window.removeEventListener('keydown', onGlobalKey, true));
@@ -966,13 +1043,23 @@ window.__ModuleLoader__.load({
 
       const models = ctx.modelDirectories;
       const directories = new Map();
+      /* directoryFor 对已寻址的 subagent 会话会 throw（解析不出 scope/binding）。
+         这里必须吞掉：它在 render 期被调用，抛出去会连累整条对话的其它轮尾条。 */
       const directoryOf = (sessionId) => {
-        if (!directories.has(sessionId)) directories.set(sessionId, models.directoryFor(sessionId));
+        if (!directories.has(sessionId)) {
+          let directory = null;
+          try {
+            directory = models.directoryFor(sessionId);
+          } catch {
+            directory = null;
+          }
+          directories.set(sessionId, directory);
+        }
         return directories.get(sessionId);
       };
       const propsFor = (sessionId) => {
-        if (!sessionId || !models) return { sessionId, directory: null, load: null, select: null };
-        const directory = directoryOf(sessionId);
+        const directory = sessionId && models ? directoryOf(sessionId) : null;
+        if (!directory) return { sessionId, directory: null, load: null, select: null };
         return {
           sessionId,
           directory: directory.store,

@@ -1,6 +1,6 @@
 {
   "name": "dsh-thinking-effort-autoswitcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "description": "DSH thinking-effort auto-switcher: replaces the composer model picker, adds an Auto mode and shows the recorded effort of every turn.",
