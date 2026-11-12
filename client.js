@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
     const AUTO_LABEL = 'Auto';
     /* 页面里跑的是哪一版：悬停按钮看 tooltip 末尾，刷新后应当等于下面的值。
        页面不刷新拿到的是旧代码，这条注释就是给「改了没效果」一个可核对的锚点。 */
-    const BUILD = '2026-11-11 17:43';
+    const BUILD = '2026-11-12 13:40';
 
     /** One mounted seat owns the global ← → ↑ ↓ shortcut at a time. */
     const cycleRegistry = { fn: null, modelFn: null, notify: null };
@@ -244,21 +244,22 @@ window.__ModuleLoader__.load({
      * ------------------------------------------------------------------ */
 
     const CSS = `
-.tef-wrap { position: relative; display: inline-flex; align-items: center; }
+.tef-wrap { position: relative; display: inline-flex; align-items: center; max-width: 100%; min-width: 0; }
 @keyframes tef-hueflow { 0% { background-position: 0% 0; } 100% { background-position: 300% 0; } }
 .tef-btn {
-  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px;
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l1, #303038); border-radius: 6px;
   background: var(--dsw-alias-bg-layer-1, #1e1e23); color: var(--dsw-alias-label-primary, #e6e6ee);
   font: 12px/1 var(--dsw-font-sans, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif);
-  cursor: pointer; white-space: nowrap; max-width: 360px;
+  cursor: pointer; white-space: nowrap; overflow: hidden;
+  max-width: min(360px, 100%); min-width: 0; box-sizing: border-box;
 }
 .tef-btn:hover { background: var(--dsw-alias-bg-layer-2, #26262d); }
 .tef-btn[disabled] { opacity: .55; cursor: default; }
-.tef-btn .tef-model { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+.tef-btn .tef-model { flex: 0 1 auto; min-width: 0; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
 /* 小字滑动：只在这一小段里切，不再有浮在按钮上方的大字 */
 .tef-eff-slot {
-  position: relative; display: inline-block;
+  position: relative; display: inline-block; flex: none;
   width: 52px; height: 22px; overflow: hidden;
   line-height: 22px; vertical-align: middle;
 }
@@ -283,7 +284,7 @@ window.__ModuleLoader__.load({
 @keyframes tef-eff-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(110%); opacity: 0; } }
 @keyframes tef-eff-in-right { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes tef-eff-in-left { from { transform: translateX(-110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-.tef-dot-sep { color: var(--dsw-alias-label-secondary, #5f5f68); }
+.tef-dot-sep { flex: none; color: var(--dsw-alias-label-secondary, #5f5f68); }
 .tef-pop {
   position: fixed; z-index: 1200; width: 268px; overflow: auto; padding: 4px;
   border: 1px solid var(--dsw-alias-border-l1, #303038); border-radius: 10px;
