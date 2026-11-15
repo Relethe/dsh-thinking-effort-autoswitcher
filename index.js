@@ -238,7 +238,10 @@ export function apply(ctx, config) {
     for await (const chunk of stream) {
       if ((chunk && chunk.type === 'text-delta') || (chunk && chunk.type === 'reasoning-delta')) {
         if (typeof chunk.text === 'string') text += chunk.text;
-        if (text.length > 4000) break;
+        /* 有些模型先写一段散文再补 JSON：一旦收集到带 score 的完整花括号就提前收工，
+           不必等它写完；上限放宽到 20000，避免把 JSON 截断成不可解析的半截。 */
+        if (text.length > 20000) break;
+        if (/["']?score["']?\s*[:：=]\s*-?\d{1,2}[\s\S]*\}/i.test(text)) break;
       }
     }
     return text;
@@ -260,8 +263,10 @@ export function apply(ctx, config) {
         /* try the next shape */
       }
     }
-    /* 模型偶尔只回一个数字或 "score: 7" */
-    const match = trimmed.match(/score\s*[:：=]?\s*(-?\d{1,2})/i) || trimmed.match(/^\s*(-?\d{1,2})\s*$/);
+    /* 模型偶尔只回一个数字，或写成 "score": 7 / score: 7 / 评分…7。
+       注意键名外面可能带引号，所以 "score" 后面允许引号再跟冒号。 */
+    const match = trimmed.match(/["']?score["']?\s*[:：=]?\s*(-?\d{1,2})/i)
+      || trimmed.match(/^\s*(-?\d{1,2})\s*$/);
     if (match) {
       const value = Number(match[1]);
       if (Number.isFinite(value)) return Math.max(0, Math.min(10, Math.round(value)));
@@ -295,6 +300,7 @@ export function apply(ctx, config) {
       '',
       '规则：越贴近锚点、影响面越大 → 分数越高；越偏离锚点、越是边角/探索 → 分数越低。',
       '只输出一行 JSON：{"score": 0-10, "reason": "不超过 12 个字"}。不要输出别的。',
+      '不要先解释再给 JSON，也不要写"评分："之类的前缀——第一个字符就必须是 {。',
     ].join('\n');
 
     const request = {
@@ -302,7 +308,7 @@ export function apply(ctx, config) {
       model: selection.model,
       reasoningEffort: lowestEffort(efforts),
       temperature: 0,
-      maxTokens: 300,
+      maxTokens: 800,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     };
 

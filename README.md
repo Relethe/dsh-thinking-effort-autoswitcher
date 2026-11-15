@@ -150,6 +150,10 @@ means the route is live; 405 means it is not.
   recorded header (for example a cancelled turn) show `default`.
 - `conversation.input.model.label` contributions from other plugins are not
   forwarded.
+- `conversation.input.model.options` (the menu's extra rows, added in DSH
+  0.2.2-rc.3) is declared so other plugins can still register into it, but it is
+  only rendered when the host passes a `renderSlot` helper into the seat; without
+  that helper the rows are silently absent.
 - The menu has no search box and no roving keyboard focus.
 - `selectModel` may be refused while an agent is running; the response carries
   `applied: false` with `applyError`, and the UI keeps the manual choice.

@@ -131,6 +131,9 @@ curl.exe -s -X POST "http://127.0.0.1:<端口>/thinking-effort/evaluate" `
 - 每轮标签优先显示 `request/header` 记录的真实档位；接口不可用时才回退到当前
   选择。没有请求头记录的轮次（例如取消的轮）显示 `default`。
 - `conversation.input.model.label` 没有转发其他插件的标签贡献。
+- `conversation.input.model.options`（菜单附加行，DSH 0.2.2-rc.3 新增）已声明，
+  其他插件仍能注册进来；但只有宿主把 `renderSlot` 传进座席时才会真正渲染，
+  拿不到时就静默缺席。
 - 菜单没有搜索框，也没有 roving focus（键盘逐项聚焦）。
 - `selectModel` 在 agent 运行中可能被拒绝；响应会带 `applied: false` 和
   `applyError`，界面保留手动选择。

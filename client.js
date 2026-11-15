@@ -488,6 +488,9 @@ window.__ModuleLoader__.load({
             ? h('div', { className: 'tef-msg' }, '自动评分未连接：重启 DSH 后生效')
             : null,
         ) : null,
+        /* 让其它插件挂在 conversation.input.model.options 上的行（如 agent-team 的团队开关）
+           仍然出现在我们的菜单里。宿主没给 renderSlot 时静默跳过。 */
+        props.renderOptions ? h('div', { className: 'tef-options' }, props.renderOptions()) : null,
       );
     }
 
@@ -757,6 +760,22 @@ window.__ModuleLoader__.load({
 
       const word = auto ? AUTO_LABEL : (effortsLabel || 'default');
 
+      /* 渲染挂在 conversation.input.model.options 上的行（DSH 0.2.2-rc.3 新增的子槽）。
+         宿主是否把 renderSlot 传进座席不确定，所以三级回退 + try/catch，取不到就静默跳过。 */
+      const renderChildOptions = React.useCallback(() => {
+        const fn = (props && props.renderSlot) || (props && props.slots && props.slots.renderSlot);
+        if (typeof fn !== 'function') return null;
+        try {
+          return fn('conversation.input.model.options', {
+            locked: Boolean(props.locked),
+            dismiss: () => setOpen(false),
+            reportFailure: (message) => setNote(message),
+          });
+        } catch {
+          return null;
+        }
+      }, [props, setOpen]);
+
       return h('div', {
         className: 'tef-wrap',
         ref: anchorRef,
@@ -794,6 +813,7 @@ window.__ModuleLoader__.load({
               const effort = middleEffort(model) || efforts[0];
               if (effort) pickEffort(effort, true);
             },
+            renderOptions: renderChildOptions,
           }),
         ) : null,
       );
@@ -1075,6 +1095,9 @@ window.__ModuleLoader__.load({
             name: 'conversation.input.model',
             children: {
               'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
+              /* DSH 0.2.2-rc.3 起官方座席多声明了这个 list 子槽（agent-team 的团队开关挂在这里）。
+                 我们替换了座席，必须把声明一并带上，否则那些贡献会因槽不存在而注册失败。 */
+              'conversation.input.model.options': { kind: 'list', scope: 'session' },
             },
             inject: propsFor,
           }, (slotProps) => h(SeatBoundary, null, h(ModelSeat, slotProps))),
