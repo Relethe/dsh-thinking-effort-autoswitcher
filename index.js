@@ -396,7 +396,14 @@ export function apply(ctx, config) {
     let applyError = null;
     let previousEffort = null;
     let unchanged = false;
+    let skipped = null;
+    /* 只允许「最后一轮」的评分改档：页面重载时所有历史轮尾标签都会挂载并触发评分，
+       不加这道闸它们会拿旧轮分数把当前档位改掉——表现就是档位突然跳回上一轮的值。 */
     if (request.apply === true) {
+      const requestedTurn = typeof request.turn === 'number' ? request.turn : null;
+      if (requestedTurn !== null && requestedTurn < failure.turn) skipped = 'stale-turn';
+    }
+    if (request.apply === true && skipped === null) {
       /* 上一次请求实际发的档位：和 target 一样就不必再写一次选择。
          每轮都无条件 selectModel 会在 agent 运行期撞上 session/writer-held，
          也会把 thinking_level_switch 统计刷满。 */
@@ -408,11 +415,21 @@ export function apply(ctx, config) {
       if (previousEffort === target) {
         unchanged = true;
       } else {
-        try {
-          await sessionController.selectModel({ sessionId, provider, model, reasoningEffort: target });
-          applied = true;
-        } catch (error) {
-          applyError = String(error && error.message ? error.message : error);
+        /* 一轮刚结束时宿主可能仍持有写入方：短暂重试一次，而不是把这次评分丢掉 */
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            await sessionController.selectModel({ sessionId, provider, model, reasoningEffort: target });
+            applied = true;
+            applyError = null;
+            break;
+          } catch (error) {
+            applyError = String(error && error.message ? error.message : error);
+            if (attempt === 0 && /writer-held|busy|运行/i.test(applyError)) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              continue;
+            }
+            break;
+          }
         }
       }
     }
@@ -435,6 +452,7 @@ export function apply(ctx, config) {
       target,
       previousEffort,
       unchanged,
+      skipped,
       applied,
       applyError,
     };

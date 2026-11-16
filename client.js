@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
     const AUTO_LABEL = 'Auto';
     /* 页面里跑的是哪一版：悬停按钮看 tooltip 末尾，刷新后应当等于下面的值。
        页面不刷新拿到的是旧代码，这条注释就是给「改了没效果」一个可核对的锚点。 */
-    const BUILD = '2026-11-12 13:40';
+    const BUILD = '2026-11-16 10:20';
 
     /** One mounted seat owns the global ← → ↑ ↓ shortcut at a time. */
     const cycleRegistry = { fn: null, modelFn: null, notify: null };
@@ -40,12 +40,13 @@ window.__ModuleLoader__.load({
       latest: null,
     };
 
-    async function postEvaluate(sessionId, applyTarget, selection) {
+    async function postEvaluate(sessionId, applyTarget, selection, turn) {
       const body = { sessionId, apply: applyTarget === true };
       if (selection && selection.provider && selection.model) {
         body.provider = selection.provider;
         body.model = selection.model;
       }
+      if (typeof turn === 'number') body.turn = turn;
       const response = await fetch('/thinking-effort/evaluate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -65,6 +66,32 @@ window.__ModuleLoader__.load({
       return response.json();
     }
 
+    /** 手动切档后的冷静期：这段时间内 auto 只评分、不改档。
+     *  用户刚亲手选过的档位不该被 600ms 后的自动评分覆盖掉。 */
+    const MANUAL_HOLD_MS = 60_000;
+
+    function manualHoldKey(sessionId) {
+      return 'thinking-effort:manual:' + (sessionId || '');
+    }
+
+    function readManualHold(sessionId) {
+      try {
+        const raw = window.localStorage.getItem(manualHoldKey(sessionId));
+        const until = raw ? Number(raw) : 0;
+        return Number.isFinite(until) && Date.now() < until;
+      } catch {
+        return false;
+      }
+    }
+
+    function writeManualHold(sessionId) {
+      try {
+        window.localStorage.setItem(manualHoldKey(sessionId), String(Date.now() + MANUAL_HOLD_MS));
+      } catch {
+        /* storage is optional */
+      }
+    }
+
     async function runScheduledEval() {
       const target = evalState.latest;
       if (!target || evalState.inflight || evalState.routeDown) return;
@@ -72,7 +99,9 @@ window.__ModuleLoader__.load({
       if (key === evalState.lastKey) return;
       evalState.inflight = true;
       try {
-        const result = await postEvaluate(target.sessionId, true, target.selection);
+        /* 冷静期内只评分不改档：apply=false，界面因此不会被旧分数顶回上一轮的档位 */
+        const apply = !readManualHold(target.sessionId);
+        const result = await postEvaluate(target.sessionId, apply, target.selection, target.turn);
         if (result && result.ok) {
           evalState.lastKey = key;
           window.dispatchEvent(new CustomEvent('thinking-effort:evaluated', { detail: result }));
@@ -84,16 +113,16 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function scheduleAutoEval(sessionId, key, selection) {
+    function scheduleAutoEval(sessionId, key, selection, turn) {
       if (!sessionId || evalState.routeDown) return;
-      evalState.latest = { sessionId, key: String(key), selection: selection || null };
+      evalState.latest = { sessionId, key: String(key), selection: selection || null, turn: typeof turn === 'number' ? turn : undefined };
       clearTimeout(evalState.timer);
       evalState.timer = setTimeout(runScheduledEval, 600);
     }
 
-    function evaluateNow(sessionId, key, selection) {
+    function evaluateNow(sessionId, key, selection, turn) {
       if (!sessionId || evalState.routeDown) return;
-      evalState.latest = { sessionId, key: String(key), selection: selection || null };
+      evalState.latest = { sessionId, key: String(key), selection: selection || null, turn: typeof turn === 'number' ? turn : undefined };
       clearTimeout(evalState.timer);
       runScheduledEval();
     }
@@ -610,11 +639,13 @@ window.__ModuleLoader__.load({
         if (busyRef.current) return;
         busyRef.current = true;
         setNote(null);
-        /* 手动切档后取消排队中的 auto 评分，避免它晚一步把选择改回去 */
+        /* 手动切档后取消排队中的 auto 评分，并给这个会话一个冷静期：
+           刚亲手选过的档位不该被下一次自动评分顶回去。 */
         if (!autoMode) {
           clearTimeout(evalState.timer);
           evalState.latest = null;
           evalState.lastKey = '';
+          writeManualHold(sessionId);
         }
         const release = () => {
           busyRef.current = false;
@@ -951,7 +982,9 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('thinking-effort:auto-changed', onChange);
       }, [sessionId]);
 
-      /* 每轮结束后（本标签挂载）触发一次 auto 评分；同一轮只算一次 */
+      /* 每轮结束后（本标签挂载）触发一次 auto 评分；同一轮只算一次。
+         把 turn 一起传给宿主：只有「最后一轮」的评分才允许改档，
+         否则页面重载时历史轮尾标签会拿旧分数把当前档位改掉。 */
       React.useEffect(() => {
         if (!auto || !current) return;
         const seq = props && props.seq;
@@ -959,8 +992,9 @@ window.__ModuleLoader__.load({
           sessionId,
           seq !== undefined && seq !== null ? 'turn:' + seq : 'mount',
           current ? { provider: current.provider, model: current.model } : null,
+          props && props.turn,
         );
-      }, [auto, sessionId, props && props.seq, current && current.provider, current && current.model]);
+      }, [auto, sessionId, props && props.seq, props && props.turn, current && current.provider, current && current.model]);
 
       /* 历史真实档位：订阅 turns 缓存，拿到 request/header 里记录的实际档位 */
       const [, forceTick] = React.useState(0);
